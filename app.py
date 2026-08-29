@@ -41,7 +41,6 @@ def send_confirmation_email(to_email, full_name, assigned_team):
     msg["From"] = MAIL_USERNAME
     msg["To"] = to_email
 
-    # HTML version of the email
     html_body = f"""
     <html>
       <body style="font-family: sans-serif; color: #333;">
@@ -66,7 +65,9 @@ def send_confirmation_email(to_email, full_name, assigned_team):
     except Exception as e:
         print(f"Failed to send email to {to_email} via SMTP: {e}")
 
-# --- HTML Templates (Embedded for Single-File Portability) ---
+# --- HTML Templates ---
+# We use Python string replacement placeholders ({EXTRA_HEAD} and {CONTENT}) 
+# instead of Jinja {% block %} tags to avoid Jinja's compilation collisions.
 BASE_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -75,7 +76,7 @@ BASE_TEMPLATE = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Games Weekend Check-In</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    {% block extra_head %}{% endblock %}
+    {EXTRA_HEAD}
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans antialiased flex flex-col min-h-screen">
     <main class="flex-grow flex items-center justify-center p-4">
@@ -89,14 +90,14 @@ BASE_TEMPLATE = """
                     {% endfor %}
                 {% endif %}
             {% endwith %}
-            {% block content %}{% endblock %}
+            {CONTENT}
         </div>
     </main>
 </body>
 </html>
 """
 
-INDEX_TEMPLATE = "{% extends 'base' %}{% block content %}" + """
+INDEX_TEMPLATE = """
 <h1 class="text-2xl font-bold text-center mb-2">Welcome!</h1>
 <p class="text-gray-500 text-center mb-6">Check in to discover your team for the weekend.</p>
 <form method="POST" action="/" class="space-y-4">
@@ -115,9 +116,9 @@ INDEX_TEMPLATE = "{% extends 'base' %}{% block content %}" + """
 <div class="mt-4 text-center">
     <a href="/teams" class="text-sm text-blue-600 hover:underline">View Live Team Counts</a>
 </div>
-""" + "{% endblock %}"
+"""
 
-CONFIRMATION_TEMPLATE = "{% extends 'base' %}{% block content %}" + """
+CONFIRMATION_TEMPLATE = """
 <div class="text-center">
     <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 mb-4">
         <svg class="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -132,13 +133,9 @@ CONFIRMATION_TEMPLATE = "{% extends 'base' %}{% block content %}" + """
     <p class="text-sm text-gray-500 mb-6">A confirmation email has been sent to {{ email }}.</p>
     <a href="/" class="text-blue-600 font-medium hover:underline">← Back to check-in</a>
 </div>
-""" + "{% endblock %}"
+"""
 
-TEAMS_TEMPLATE = "{% extends 'base' %}" + """
-{% block extra_head %}
-    <meta http-equiv="refresh" content="30">
-{% endblock %}
-{% block content %}
+TEAMS_TEMPLATE = """
 <h1 class="text-2xl font-bold text-center mb-6">Live Team Counts</h1>
 <div class="grid grid-cols-2 gap-4 mb-6">
     {% for team, count in team_counts.items() %}
@@ -156,7 +153,6 @@ TEAMS_TEMPLATE = "{% extends 'base' %}" + """
 <div class="mt-4 text-center">
     <a href="/" class="text-sm text-blue-600 hover:underline">← Back to form</a>
 </div>
-{% endblock %}
 """
 
 # --- Routes ---
@@ -176,7 +172,6 @@ def index():
             return redirect(url_for("index"))
 
         try:
-            # 1. Fetch current data to calculate balanced distribution
             records = sheet.get_all_records()
             teams = ["Honour", "Love", "Breakthrough", "Dominion"]
             team_counts = {t: 0 for t in teams}
@@ -186,20 +181,18 @@ def index():
                 if team_val in team_counts:
                     team_counts[team_val] += 1
 
-            # 2. Find the team(s) with the lowest count
             min_count = min(team_counts.values())
             candidates = [t for t, count in team_counts.items() if count == min_count]
             assigned_team = random.choice(candidates)
 
-            # 3. Append to Google Sheets
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             sheet.append_row([timestamp, full_name, email, assigned_team])
 
-            # 4. Send Confirmation Email via Gmail SMTP
             send_confirmation_email(email, full_name, assigned_team)
 
+            html_string = BASE_TEMPLATE.replace("{EXTRA_HEAD}", "").replace("{CONTENT}", CONFIRMATION_TEMPLATE)
             return render_template_string(
-                CONFIRMATION_TEMPLATE.replace("{% extends 'base' %}", BASE_TEMPLATE),
+                html_string,
                 name=full_name, 
                 team=assigned_team, 
                 email=email
@@ -210,7 +203,8 @@ def index():
             flash("An unexpected error occurred. Please try again.", "error")
             return redirect(url_for("index"))
 
-    return render_template_string(INDEX_TEMPLATE.replace("{% extends 'base' %}", BASE_TEMPLATE))
+    html_string = BASE_TEMPLATE.replace("{EXTRA_HEAD}", "").replace("{CONTENT}", INDEX_TEMPLATE)
+    return render_template_string(html_string)
 
 @app.route("/teams", methods=["GET"])
 def teams_view():
@@ -230,8 +224,11 @@ def teams_view():
             flash("Unable to load live data.", "error")
 
     total = sum(team_counts.values())
+    extra_head = '<meta http-equiv="refresh" content="30">'
+    html_string = BASE_TEMPLATE.replace("{EXTRA_HEAD}", extra_head).replace("{CONTENT}", TEAMS_TEMPLATE)
+    
     return render_template_string(
-        TEAMS_TEMPLATE.replace("{% extends 'base' %}", BASE_TEMPLATE),
+        html_string,
         team_counts=team_counts,
         total=total
     )
