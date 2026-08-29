@@ -1,21 +1,23 @@
 import os
 import json
 import random
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from flask import Flask, request, render_template_string, redirect, url_for, flash
 import gspread
-import resend
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "super-secret-fallback-key")
 
 # --- Configuration & Environment Variables ---
-RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 GOOGLE_SHEETS_ID = os.getenv("GOOGLE_SHEETS_ID")
 GOOGLE_SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
-
-# Initialize Resend
-resend.api_key = RESEND_API_KEY
+MAIL_SERVER = os.getenv("MAIL_SERVER", "smtp.gmail.com")
+MAIL_PORT = int(os.getenv("MAIL_PORT", 587))
+MAIL_USERNAME = os.getenv("MAIL_USERNAME")
+MAIL_PASSWORD = os.getenv("MAIL_PASSWORD")
 
 # --- Google Sheets Helper ---
 def get_sheet():
@@ -27,6 +29,42 @@ def get_sheet():
     except Exception as e:
         print(f"Error connecting to Google Sheets: {e}")
         return None
+
+# --- SMTP Email Helper ---
+def send_confirmation_email(to_email, full_name, assigned_team):
+    if not MAIL_USERNAME or not MAIL_PASSWORD:
+        print("SMTP credentials not configured. Skipping email.")
+        return
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Your Games Weekend Team Assignment!"
+    msg["From"] = MAIL_USERNAME
+    msg["To"] = to_email
+
+    # HTML version of the email
+    html_body = f"""
+    <html>
+      <body style="font-family: sans-serif; color: #333;">
+        <h2>Welcome, {full_name}!</h2>
+        <p>We are excited to have you join us. You have been officially assigned to:</p>
+        <h3 style="color: #2563eb; background: #eff6ff; padding: 15px; border-radius: 5px; display: inline-block;">
+            Team {assigned_team}
+        </h3>
+        <p>See you at the games weekend!</p>
+      </body>
+    </html>
+    """
+    
+    msg.attach(MIMEText(html_body, "html"))
+
+    try:
+        server = smtplib.SMTP(MAIL_SERVER, MAIL_PORT)
+        server.starttls()
+        server.login(MAIL_USERNAME, MAIL_PASSWORD)
+        server.sendmail(MAIL_USERNAME, to_email, msg.as_string())
+        server.quit()
+    except Exception as e:
+        print(f"Failed to send email to {to_email} via SMTP: {e}")
 
 # --- HTML Templates (Embedded for Single-File Portability) ---
 BASE_TEMPLATE = """
@@ -157,17 +195,8 @@ def index():
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             sheet.append_row([timestamp, full_name, email, assigned_team])
 
-            # 4. Send Confirmation Email via Resend
-            try:
-                resend.Emails.send({
-                    "from": "onboarding@resend.dev", # Change to your verified domain in production (e.g. events@yourdomain.com)
-                    "to": email,
-                    "subject": "Your Games Weekend Team Assignment!",
-                    "html": f"<h2>Welcome, {full_name}!</h2><p>We are excited to have you. You have been assigned to <strong>Team {assigned_team}</strong>.</p><p>See you at the games weekend!</p>"
-                })
-            except Exception as email_err:
-                # We log the error but don't stop the user journey since they are already saved
-                print(f"Failed to send email to {email}: {email_err}")
+            # 4. Send Confirmation Email via Gmail SMTP
+            send_confirmation_email(email, full_name, assigned_team)
 
             return render_template_string(
                 CONFIRMATION_TEMPLATE.replace("{% extends 'base' %}", BASE_TEMPLATE),
