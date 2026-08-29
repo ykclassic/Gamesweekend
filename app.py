@@ -8,25 +8,18 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 app = Flask(__name__)
-# Required for Flask flash messages
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "fallback_dev_key_12345")
 
 def get_google_sheet():
-    """
-    Authenticates with Google Sheets using environment variables.
-    Prioritizes secure parsing of the JSON credentials.
-    """
     creds_json_str = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
     if not creds_json_str:
         raise ValueError("Environment variable GOOGLE_SERVICE_ACCOUNT_JSON is missing.")
     
-    # Securely load the string into a dictionary
     try:
         creds_dict = json.loads(creds_json_str)
     except json.JSONDecodeError as e:
         raise ValueError(f"Failed to parse GOOGLE_SERVICE_ACCOUNT_JSON. Invalid JSON format: {e}")
 
-    # Define the required API scopes
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
@@ -39,10 +32,8 @@ def get_google_sheet():
     if not sheet_id:
         raise ValueError("Environment variable GOOGLE_SHEETS_ID is missing.")
         
-    # Open the workbook and return the first sheet
     workbook = gc.open_by_key(sheet_id)
     return workbook.sheet1
-
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -55,26 +46,29 @@ def index():
                 flash("System error: Missing name or email. Please try again.")
                 return render_template("index.html")
 
-            # 1. Attempt Database Connection
             sheet = get_google_sheet()
             
-            # 2. INSERT YOUR TEAM ASSIGNMENT LOGIC HERE
-            # Example: sheet.append_row([full_name, email_address, "Team Alpha"])
+            # INSERT YOUR TEAM ASSIGNMENT LOGIC HERE
             
             flash(f"Success! {full_name}, you are checked in.")
             return render_template("index.html")
             
         except Exception as e:
-            # Force the traceback into Render's terminal to diagnose the 502 Bad Gateway
             print("=== CRITICAL DATABASE ERROR TRACEBACK ===", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
             print("=========================================", file=sys.stderr)
-            
-            # Return the exact error string to the browser to prevent Gunicorn from crashing silently
             return f"A runtime exception occurred: {str(e)} <br><br> Please check Render logs for the full traceback.", 500
 
-    # GET request: render the check-in form
     return render_template("index.html")
+
+@app.route("/teams", methods=["GET"])
+def teams():
+    # Renders teams.html if it exists in the templates folder.
+    # Otherwise, falls back to a plain text response to prevent a 500 crash.
+    try:
+        return render_template("teams.html")
+    except Exception:
+        return "Live Team Counts dashboard is under construction.", 200
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
