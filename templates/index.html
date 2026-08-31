@@ -18,6 +18,8 @@
     button { width: 100%; margin-top: 24px; border: 0; border-radius: 12px; padding: 15px; background: #315efb; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
     button:hover { background: #244bd1; }
     .note { margin-top: 22px; color: #667085; font-size: .86rem; text-align: center; }
+    .admin-link { display: block; margin-top: 18px; text-align: center; color: #315efb; font-size: .9rem; font-weight: 650; text-decoration: none; }
+    .admin-link:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -32,6 +34,7 @@
       <button type="submit">Check In &amp; Find My Team</button>
     </form>
     <p class="note">Your name, email, timestamp and team assignment are stored in the event registration sheet.</p>
+    <a class="admin-link" href="{{ url_for('admin_login') }}">Sign in as admin</a>
   </main>
 </body>
 </html>
