@@ -8,13 +8,20 @@ import threading
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import parseaddr
+from functools import wraps
 
 import gspread
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, session, redirect, url_for
 from google.oauth2.service_account import Credentials
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 16 * 1024
+app.config.update(
+    MAX_CONTENT_LENGTH=16 * 1024,
+    SECRET_KEY=os.environ.get("FLASK_SECRET_KEY", "").strip(),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "true").lower() == "true",
+)
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
 TEAMS = ("Honour", "Love", "Breakthrough", "Dominion")
@@ -68,7 +75,7 @@ def valid_email(value: str) -> bool:
 
 
 def send_confirmation_email(full_name: str, email_address: str, team: str) -> None:
-    """Send confirmation using Gmail SMTP and a Google App Password."""
+    """Send the confirmation using Gmail SMTP and a Google App Password."""
     host = os.environ.get("GMAIL_SMTP_HOST", "smtp.gmail.com").strip()
     try:
         port = int(os.environ.get("GMAIL_SMTP_PORT", "587"))
@@ -99,6 +106,16 @@ def send_confirmation_email(full_name: str, email_address: str, team: str) -> No
         smtp.ehlo()
         smtp.login(username, password)
         smtp.send_message(message)
+
+
+def admin_required(view):
+    """Require an authenticated admin before exposing team counts."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not session.get("is_admin"):
+            return redirect(url_for("admin_login", next=request.path))
+        return view(*args, **kwargs)
+    return wrapped
 
 
 def render_error(message: str, status_code: int = 500):
@@ -141,7 +158,34 @@ def index():
         return render_error("We could not complete your check-in right now. Please try again or contact the organizers.", 503)
 
 
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    if request.method == "GET":
+        return render_template("admin_login.html")
+    try:
+        configured_password = _required_env("ADMIN_PASSWORD")
+        submitted_password = request.form.get("password", "")
+        if submitted_password != configured_password:
+            return render_template("admin_login.html", error="Invalid admin password."), 401
+        session.clear()
+        session["is_admin"] = True
+        next_url = request.form.get("next", "")
+        if not next_url.startswith("/") or next_url.startswith("//"):
+            next_url = url_for("teams")
+        return redirect(next_url)
+    except Exception:
+        logger.exception("Admin login configuration failure")
+        return render_error("Admin access is not configured correctly.", 503)
+
+
+@app.post("/admin/logout")
+def admin_logout():
+    session.clear()
+    return redirect(url_for("index"))
+
+
 @app.get("/teams")
+@admin_required
 def teams():
     try:
         worksheet = get_google_sheet()
