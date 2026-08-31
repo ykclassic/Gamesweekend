@@ -20,5 +20,9 @@ services:
         value: smtp.gmail.com
       - key: GMAIL_SMTP_PORT
         value: "587"
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: FLASK_SECRET_KEY
+        sync: false
       - key: LOG_LEVEL
         value: INFO
