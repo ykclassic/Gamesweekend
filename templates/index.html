@@ -17,7 +17,6 @@
     input:focus { outline: 3px solid #dbe8ff; border-color: #4f7cff; }
     button { width: 100%; margin-top: 24px; border: 0; border-radius: 12px; padding: 15px; background: #315efb; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
     button:hover { background: #244bd1; }
-    .link { display: block; text-align: center; margin-top: 20px; color: #315efb; text-decoration: none; font-weight: 650; }
     .note { margin-top: 22px; color: #667085; font-size: .86rem; text-align: center; }
   </style>
 </head>
@@ -28,13 +27,10 @@
     <form method="post" novalidate>
       <label for="full_name">Full Name</label>
       <input id="full_name" name="full_name" type="text" autocomplete="name" maxlength="150" required placeholder="Your full name">
-
       <label for="email_address">Email</label>
       <input id="email_address" name="email_address" type="email" autocomplete="email" maxlength="254" required placeholder="you@example.com">
-
       <button type="submit">Check In &amp; Find My Team</button>
     </form>
-    <a class="link" href="{{ url_for('teams') }}">View live team counts</a>
     <p class="note">Your name, email, timestamp and team assignment are stored in the event registration sheet.</p>
   </main>
 </body>
