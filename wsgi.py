@@ -1,29 +1,72 @@
-"""Production WSGI entry point.
+"""Production WSGI entry point for the participant and admin application.
 
-The production process must expose the same Flask application regardless of
-whether Render invokes ``wsgi:app`` or another compatible WSGI target.  The
-participant lookup route is registered here explicitly so it cannot disappear
-because of import-order or circular-import behavior.
+Participant-facing registration state is read explicitly from Google Sheets on
+GET / instead of depending on a template context processor. This guarantees
+that the landing page and admin dashboard use the same authoritative F1 value.
 """
+
+import time
 
 from flask import render_template, request
 
 from app import app, get_event_status, get_google_sheet, get_participants, valid_email
 
 
+def _read_registration_status_with_retry():
+    """Read the authoritative event status from Google Sheets.
+
+    A transient Google API/network failure should not immediately turn a healthy
+    registration page into an unavailable page. We retry a small number of times
+    while never inventing an OPEN/CLOSED status when the sheet cannot be read.
+    """
+    last_error = None
+    for attempt in range(3):
+        try:
+            worksheet = get_google_sheet()
+            return get_event_status(worksheet), False
+        except Exception as exc:
+            last_error = exc
+            app.logger.warning(
+                "Google Sheets event-status read failed (attempt %s/3): %s",
+                attempt + 1,
+                exc,
+            )
+            if attempt < 2:
+                time.sleep(0.5 * (attempt + 1))
+    app.logger.exception("Unable to read authoritative registration status") if last_error else None
+    return None, True
+
+
+# Replace the GET behavior of the application route with an explicit
+# Sheet-backed render. POST remains handled by the original registration logic.
+_original_index = app.view_functions.get("index")
+if _original_index is None:
+    raise RuntimeError("The Flask application does not expose the index endpoint.")
+
+
+def participant_index():
+    if request.method == "GET":
+        registration_status, status_error = _read_registration_status_with_retry()
+        return render_template(
+            "index.html",
+            registration_status=registration_status,
+            registration_status_error=status_error,
+        )
+    return _original_index()
+
+
+app.view_functions["index"] = participant_index
+
+
 # Register participant-facing routes directly on the production Flask app.
-# Do not rely on participant_routes.py being imported for endpoint discovery.
 if "participant_lookup" not in app.view_functions:
 
     @app.get("/lookup", endpoint="participant_lookup")
     def participant_lookup():
         result = None
         error = None
-        try:
-            worksheet = get_google_sheet()
-            get_event_status(worksheet)
-        except Exception:
-            app.logger.exception("Unable to read registration status for team lookup")
+        status, status_error = _read_registration_status_with_retry()
+        if status_error:
             return render_template(
                 "lookup.html",
                 result=None,
@@ -36,6 +79,7 @@ if "participant_lookup" not in app.view_functions:
                 error = "Please enter the email address you used when registering."
             else:
                 try:
+                    worksheet = get_google_sheet()
                     participant = next(
                         (
                             participant
@@ -53,29 +97,6 @@ if "participant_lookup" not in app.view_functions:
                     error = "We could not look up your team right now. Please try again."
 
         return render_template("lookup.html", result=result, error=error)
-
-
-# Register the Sheet-backed participant status context processor here as well.
-# It is deliberately defined on the actual app object before Gunicorn receives it.
-if not any(
-    getattr(processor, "__name__", "") == "participant_registration_status"
-    for processor in app.template_context_processors.get(None, [])
-):
-
-    @app.context_processor
-    def participant_registration_status():
-        try:
-            worksheet = get_google_sheet()
-            return {
-                "registration_status": get_event_status(worksheet),
-                "registration_status_error": False,
-            }
-        except Exception:
-            app.logger.exception("Unable to read registration status for participant UI")
-            return {
-                "registration_status": None,
-                "registration_status_error": True,
-            }
 
 
 __all__ = ["app"]
