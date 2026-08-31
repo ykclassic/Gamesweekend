@@ -36,14 +36,14 @@
       <button id="submit-button" type="submit" {% if registration_status != 'OPEN' %}disabled{% endif %}>Check In &amp; Find My Team</button>
     </form>
     <p class="note">Your registration is saved permanently. If you submit again with the same email, we recover your existing registration instead of creating another one.</p>
-    <a class="secondary" href="{{ url_for('participant_lookup') }}">Forgot your team? Find it with your email</a>
+    <a class="secondary" href="/lookup">Forgot your team? Find it with your email</a>
     <a class="admin-link" href="{{ url_for('admin_login') }}">Sign in as admin</a>
   </section>
 
   <section class="card">
     <h2>About the Portal</h2>
     <p>Welcome to the Living Faith Church, Ijebu Igbo YouthAlive Fellowship Team Allocation Portal. Complete the check-in form once. Your team is assigned using the current team distribution and saved for the event.</p>
-    <p class="note">Already registered? Use <a href="{{ url_for('participant_lookup') }}">Find My Team</a> rather than registering again.</p>
+    <p class="note">Already registered? Use <a href="/lookup">Find My Team</a> rather than registering again.</p>
   </section>
 
   <section class="card">
