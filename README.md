@@ -1,6 +1,6 @@
 # Games Weekend Check-In
 
-Production Flask application for public event check-in, balanced team assignment, Google Sheets persistence, confirmation email, and live team counts.
+Production Flask application for public event check-in, balanced team assignment, Google Sheets persistence, Gmail SMTP confirmation email, and live team counts.
 
 ## How the assignment works
 
@@ -32,30 +32,40 @@ The check-in write is serialized with an application lock. The recommended Rende
 
 The application uses `google.oauth2.service_account.Credentials.from_service_account_info(...)`, so a JSON file on disk is not required in production.
 
-## 3. Set up Resend
+## 3. Set up Gmail SMTP
 
-1. Create a Resend account.
-2. Create an API key.
-3. For production sending, add and verify a domain in Resend and use a sender address on that verified domain.
-4. Set `RESEND_API_KEY` to the API key.
-5. Set `RESEND_FROM_EMAIL` to the verified sender address, for example `Games Weekend <hello@example.com>`.
+The application sends confirmation emails directly through Gmail SMTP. Resend is not used.
 
-`RESEND_FROM_EMAIL` is optional in local testing and defaults to `onboarding@resend.dev`. A verified production sender is recommended.
+1. Use a Gmail or Google Workspace account dedicated to the event if possible.
+2. Turn on **2-Step Verification** for that Google account.
+3. Create a **Google App Password** for the mail-sending account. Use the generated 16-character app password as the SMTP password; do not use the normal Google account password.
+4. The default SMTP server is `smtp.gmail.com` on port `587` with STARTTLS.
+
+For a Gmail sender, configure:
+
+- `GMAIL_SMTP_USERNAME` — the Gmail address used to authenticate.
+- `GMAIL_SMTP_APP_PASSWORD` — the Google App Password.
+- `GMAIL_FROM_EMAIL` — optional; defaults to `GMAIL_SMTP_USERNAME`.
+
+For Google Workspace, use the organization's approved SMTP/account policy. If the administrator has disabled SMTP AUTH or App Passwords, this method will not work until an approved Google-supported authentication arrangement is enabled.
 
 ## 4. Environment variables
 
 Required:
 
-- `RESEND_API_KEY`
 - `GOOGLE_SHEETS_ID`
 - `GOOGLE_SERVICE_ACCOUNT_JSON` — the complete service-account JSON object as one environment-variable value
+- `GMAIL_SMTP_USERNAME`
+- `GMAIL_SMTP_APP_PASSWORD`
 
-Recommended for production:
+Optional:
 
-- `RESEND_FROM_EMAIL` — verified Resend sender, e.g. `Games Weekend <hello@example.com>`
+- `GMAIL_FROM_EMAIL` — sender address; defaults to `GMAIL_SMTP_USERNAME`
+- `GMAIL_SMTP_HOST` — defaults to `smtp.gmail.com`
+- `GMAIL_SMTP_PORT` — defaults to `587`
 - `LOG_LEVEL` — normally `INFO`
 
-Do not put API keys or service-account JSON in GitHub, `.env` files committed to Git, templates, or client-side JavaScript.
+Do not put credentials or service-account JSON in GitHub, committed `.env` files, templates, or client-side JavaScript.
 
 ## 5. Run locally
 
@@ -95,13 +105,14 @@ Use one worker because the application lock protects the read/count/append seque
 Add these Render environment variables:
 
 ```text
-RESEND_API_KEY=<your Resend API key>
-RESEND_FROM_EMAIL=Games Weekend <your-verified-address@example.com>
-GOOGLE_SHEETS_ID=<your spreadsheet ID>
-GOOGLE_SERVICE_ACCOUNT_JSON=<complete service account JSON>
+GMAIL_SMTP_USERNAME=your-event-account@gmail.com
+GMAIL_SMTP_APP_PASSWORD=your-google-app-password
+GMAIL_FROM_EMAIL=your-event-account@gmail.com
+GOOGLE_SHEETS_ID=your-spreadsheet-id
+GOOGLE_SERVICE_ACCOUNT_JSON=your-complete-service-account-json
 ```
 
-Do not add the Google JSON key to the repository.
+Do not add the Google JSON key or Gmail App Password to the repository.
 
 ## 7. Generate a QR code for the form
 
@@ -126,7 +137,7 @@ Before opening registration:
 2. Visit `/` and submit a real test participant.
 3. Confirm the row appears in Google Sheets.
 4. Confirm the team is one of the four allowed teams.
-5. Confirm the confirmation email arrives.
+5. Confirm the Gmail confirmation email arrives.
 6. Open `/teams` and verify counts.
 7. Submit enough test registrations to verify that the lowest-count team is selected and that ties are randomized.
 8. Remove test rows before the event if desired.
