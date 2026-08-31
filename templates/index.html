@@ -1,40 +1,63 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Games Weekend team check-in">
   <title>Games Weekend — Check In</title>
   <style>
-    :root { color-scheme: light; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; background: #f5f7fb; color: #172033; display: grid; place-items: center; padding: 24px; }
-    main { width: min(100%, 480px); background: #fff; border: 1px solid #e6eaf0; border-radius: 20px; padding: 32px; box-shadow: 0 12px 40px rgba(23,32,51,.07); }
-    h1 { margin: 0 0 8px; font-size: clamp(1.8rem, 7vw, 2.3rem); }
-    .intro { color: #667085; margin: 0 0 28px; line-height: 1.5; }
-    label { display: block; font-weight: 650; margin: 18px 0 8px; }
-    input { width: 100%; border: 1px solid #d7dce5; border-radius: 12px; padding: 14px 15px; font: inherit; }
-    input:focus { outline: 3px solid #dbe8ff; border-color: #4f7cff; }
-    button { width: 100%; margin-top: 24px; border: 0; border-radius: 12px; padding: 15px; background: #315efb; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
-    button:hover { background: #244bd1; }
-    .note { margin-top: 22px; color: #667085; font-size: .86rem; text-align: center; }
-    .admin-link { display: block; margin-top: 18px; text-align: center; color: #315efb; font-size: .9rem; font-weight: 650; text-decoration: none; }
-    .admin-link:hover { text-decoration: underline; }
+    :root { color-scheme:light; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:#172033; }
+    *{box-sizing:border-box} body{margin:0;min-height:100vh;background:#f5f7fb;padding:24px;color:#172033}
+    main{width:min(100%,620px);margin:auto} .card{background:#fff;border:1px solid #e6eaf0;border-radius:20px;padding:28px;box-shadow:0 12px 40px rgba(23,32,51,.07);margin-bottom:16px}
+    h1{margin:0 0 8px;font-size:clamp(1.9rem,7vw,2.4rem)} h2{margin:0 0 10px;font-size:1.15rem}.intro,p{color:#667085;line-height:1.55}
+    label{display:block;font-weight:700;margin:18px 0 8px} input{width:100%;padding:14px 15px;border:1px solid #d7dce5;border-radius:12px;font:inherit}
+    input:focus{outline:3px solid #dbe8ff;border-color:#315efb} button{width:100%;margin-top:22px;border:0;border-radius:12px;padding:15px;background:#315efb;color:#fff;font:inherit;font-weight:750;cursor:pointer}
+    button:disabled{opacity:.7;cursor:wait}.secondary{display:block;margin-top:16px;text-align:center;color:#315efb;text-decoration:none;font-weight:700}.admin-link{display:block;text-align:center;color:#667085;text-decoration:none;font-size:.9rem;margin-top:20px}
+    details{border-top:1px solid #e6eaf0;padding:15px 0}details:first-of-type{border-top:0}summary{cursor:pointer;font-weight:700}.note{font-size:.88rem}.status{padding:12px 14px;border-radius:12px;background:#eef3ff;color:#244bd1;font-weight:650;margin-bottom:18px}
+    @media(max-width:520px){body{padding:14px}.card{padding:22px}}
   </style>
 </head>
-<body>
-  <main>
+<body><main>
+  <section class="card">
     <h1>Games Weekend</h1>
-    <p class="intro">Check in below and we'll assign you to a team using the current team counts.</p>
-    <form method="post" novalidate>
+    <p class="intro">Check in below and we'll assign you to one of the four Games Weekend teams.</p>
+    <div class="status">Registration is open — your team will be assigned automatically.</div>
+    <form method="post" id="checkin-form" novalidate>
       <label for="full_name">Full Name</label>
       <input id="full_name" name="full_name" type="text" autocomplete="name" maxlength="150" required placeholder="Your full name">
       <label for="email_address">Email</label>
       <input id="email_address" name="email_address" type="email" autocomplete="email" maxlength="254" required placeholder="you@example.com">
-      <button type="submit">Check In &amp; Find My Team</button>
+      <button id="submit-button" type="submit">Check In &amp; Find My Team</button>
     </form>
-    <p class="note">Your name, email, timestamp and team assignment are stored in the event registration sheet.</p>
+    <p class="note">Your registration is saved permanently. If you submit again with the same email, we will recover your existing registration instead of creating another one.</p>
+    <a class="secondary" href="{{ url_for('participant_lookup') }}">Forgot your team? Find it with your email</a>
     <a class="admin-link" href="{{ url_for('admin_login') }}">Sign in as admin</a>
-  </main>
+  </section>
+
+  <section class="card">
+    <h2>About Games Weekend</h2>
+    <p>Welcome! Complete the check-in form once. Your team is assigned using the current team distribution, and your assignment is saved for the event.</p>
+    <p class="note">If you have already registered, use <a href="{{ url_for('participant_lookup') }}">Find My Team</a> rather than registering again.</p>
+  </section>
+
+  <section class="card">
+    <h2>Frequently Asked Questions</h2>
+    <details><summary>How is my team chosen?</summary><p>The system assigns you to a team with the fewest current members. If teams are tied for the lowest count, one of those teams is selected at random.</p></details>
+    <details><summary>Can I register more than once?</summary><p>No. Your email address identifies your existing registration. If you submit again, the system recovers the existing team instead of creating a duplicate.</p></details>
+    <details><summary>I forgot my team. What should I do?</summary><p>Use the “Forgot your team?” option above and enter the exact email address you used when registering.</p></details>
+    <details><summary>I did not receive my confirmation email.</summary><p>Your registration can still be complete even if email delivery is temporarily unavailable. Use the team lookup page or speak with an organizer. Do not register again.</p></details>
+    <details><summary>Can I change my team?</summary><p>Team assignments are managed by the event organizers. Please speak with an organizer if you need a correction.</p></details>
+  </section>
+</main>
+<script>
+  const form = document.getElementById('checkin-form');
+  const button = document.getElementById('submit-button');
+  form.addEventListener('submit', function (event) {
+    if (!form.checkValidity()) return;
+    if (form.dataset.submitting === 'true') { event.preventDefault(); return; }
+    form.dataset.submitting = 'true';
+    button.disabled = true;
+    button.textContent = 'Checking you in…';
+  });
+</script>
 </body>
 </html>
