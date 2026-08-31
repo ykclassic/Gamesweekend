@@ -9,20 +9,34 @@ from app import (
 )
 
 
+@app.context_processor
+def participant_registration_status():
+    """Provide the landing page with the authoritative Sheet-backed status."""
+    try:
+        worksheet = get_google_sheet()
+        return {
+            "registration_status": get_event_status(worksheet),
+            "registration_status_error": False,
+        }
+    except Exception:
+        app.logger.exception("Unable to read registration status for participant UI")
+        return {
+            "registration_status": None,
+            "registration_status_error": True,
+        }
+
+
 @app.get("/lookup")
 def participant_lookup():
     result = None
     error = None
     try:
         worksheet = get_google_sheet()
-        event_status = get_event_status(worksheet)
+        get_event_status(worksheet)
     except Exception:
-        app.logger.exception("Unable to read registration status for participant page")
-        return render_template(
-            "index.html",
-            registration_status=None,
-            registration_status_error=True,
-        )
+        app.logger.exception("Unable to read registration status for team lookup")
+        error = "The registration service is temporarily unavailable. Please try again."
+        return render_template("lookup.html", result=result, error=error)
 
     if request.args.get("email"):
         email = request.args.get("email", "").strip().lower()
@@ -44,22 +58,7 @@ def participant_lookup():
     return render_template("lookup.html", result=result, error=error)
 
 
-# Register the participant landing page here so its displayed status is always
-# obtained from the authoritative Google Sheet event-status cell.
 @app.get("/participant")
 def participant_landing():
-    try:
-        worksheet = get_google_sheet()
-        registration_status = get_event_status(worksheet)
-        return render_template(
-            "index.html",
-            registration_status=registration_status,
-            registration_status_error=False,
-        )
-    except Exception:
-        app.logger.exception("Unable to read registration status for participant landing page")
-        return render_template(
-            "index.html",
-            registration_status=None,
-            registration_status_error=True,
-        )
+    # Kept as a convenience route; / is also backed by the context processor above.
+    return render_template("index.html")
