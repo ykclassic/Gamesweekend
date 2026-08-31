@@ -1,36 +1,48 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Find your Games Weekend team">
-  <title>Find My Team — Games Weekend</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#173f8f">
+  <meta name="description" content="Find your YouthAlive Fellowship team assignment">
+  <title>Find My Team — YouthAlive Fellowship</title>
   <style>
-    :root { font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:#172033; }
-    *{box-sizing:border-box} body{margin:0;min-height:100vh;background:#f5f7fb;display:grid;place-items:center;padding:20px}
-    main{width:min(100%,480px);background:#fff;border:1px solid #e6eaf0;border-radius:20px;padding:30px 24px;box-shadow:0 12px 40px rgba(23,32,51,.07)}
-    h1{margin:0 0 8px} p{color:#667085;line-height:1.5} label{display:block;font-weight:700;margin:22px 0 8px}
-    input{width:100%;padding:14px;border:1px solid #d7dce5;border-radius:12px;font:inherit} button{width:100%;margin-top:18px;padding:14px;border:0;border-radius:12px;background:#315efb;color:#fff;font:inherit;font-weight:750;cursor:pointer}
-    .error{margin-top:18px;padding:13px;border-radius:12px;background:#fff1f0;color:#b42318}.result{margin-top:24px;padding:24px;border:2px solid #315efb;border-radius:18px;text-align:center;background:#f7f9ff}
-    .team{font-size:clamp(2rem,12vw,3rem);font-weight:850;color:#315efb}.back{display:block;margin-top:20px;text-align:center;color:#315efb;text-decoration:none;font-weight:650}
+    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:#172033; --navy:#173f8f; --blue:#2f67d8; --gold:#f4b942; --muted:#667085; --border:#e5eaf2; }
+    *{box-sizing:border-box} body{margin:0;min-height:100vh;background:radial-gradient(circle at 10% 0%,rgba(47,103,216,.18),transparent 28rem),radial-gradient(circle at 100% 20%,rgba(244,185,66,.15),transparent 24rem),linear-gradient(180deg,#f6f9ff,#f3f6fb);padding:16px}
+    main{width:min(100%,560px);margin:auto}.hero{color:#fff;border-radius:25px;padding:28px 24px;margin-bottom:14px;background:linear-gradient(135deg,#173f8f,#2f67d8);box-shadow:0 18px 45px rgba(23,63,143,.18)}
+    .eyebrow{display:inline-block;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.12);font-size:.76rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.eyebrow::before{content:"✦ ";color:#ffd66b}
+    h1{margin:15px 0 8px;font-size:clamp(2rem,8vw,2.7rem);line-height:1.05;letter-spacing:-.03em}.hero p{margin:0;color:rgba(255,255,255,.86);line-height:1.55}
+    .card{background:rgba(255,255,255,.97);border:1px solid var(--border);border-radius:21px;padding:24px;box-shadow:0 12px 38px rgba(23,32,51,.07)}
+    label{display:block;font-weight:800;margin:4px 0 8px}.muted{color:var(--muted);line-height:1.55}input{width:100%;min-height:53px;padding:14px 15px;border:1px solid #d4dbe7;border-radius:14px;background:#fbfcff;font:inherit}input:focus{outline:none;border-color:var(--blue);background:#fff;box-shadow:0 0 0 4px rgba(47,103,216,.12)}
+    button{width:100%;min-height:54px;margin-top:18px;border:0;border-radius:14px;padding:14px 18px;background:linear-gradient(135deg,#285fc2,#3e79e5);color:#fff;font:inherit;font-weight:850;cursor:pointer;box-shadow:0 9px 20px rgba(47,103,216,.22)}button:hover{transform:translateY(-1px)}
+    .error{margin-top:18px;padding:14px 15px;border-radius:14px;background:#fff1f0;border:1px solid #f4d0cd;color:#a12626;font-weight:650}.result{margin-top:22px;padding:24px;border:2px solid #d7e5ff;border-radius:19px;text-align:center;background:linear-gradient(145deg,#f7faff,#eef5ff)}
+    .result p{margin:8px 0;color:var(--muted);line-height:1.5}.team{margin:8px 0 14px;font-size:clamp(2.35rem,13vw,3.6rem);line-height:1;font-weight:900;color:var(--navy);letter-spacing:-.04em}.team::before{content:"TEAM ";display:block;font-size:.72rem;letter-spacing:.16em;color:#7b879a;margin-bottom:9px}
+    .tip{margin-top:18px;padding:13px 14px;border-radius:13px;background:#fff8e7;border:1px solid #f3dfaa;color:#735000;font-size:.88rem;line-height:1.5}.back{display:flex;justify-content:center;align-items:center;min-height:48px;margin-top:12px;border-radius:13px;background:#edf4ff;border:1px solid #d9e7ff;color:var(--navy);text-decoration:none;font-weight:800}
+    @media(max-width:520px){body{padding:10px}.hero{padding:24px 20px;border-radius:22px}.card{padding:20px 17px}}
   </style>
 </head>
 <body><main>
-  <h1>Forgot your team?</h1>
-  <p>Enter the email address you used when you checked in. We only show the team associated with that exact registered email.</p>
-  <form method="get" novalidate>
-    <label for="email">Registration email</label>
-    <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required value="{{ request.args.get('email','') }}" placeholder="you@example.com">
-    <button type="submit">Find My Team</button>
-  </form>
-  {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
-  {% if result %}
-  <section class="result" aria-live="polite">
-    <p>You're registered as <strong>{{ result.full_name }}</strong>.</p>
-    <p>Your Games Weekend team is:</p>
-    <div class="team">{{ result.team }}</div>
-    <p>Your registration is already saved. You do not need to register again.</p>
+  <header class="hero">
+    <span class="eyebrow">YouthAlive Fellowship</span>
+    <h1>Find My Team</h1>
+    <p>Forgot your team assignment? Enter the email address you used during check-in and we'll retrieve your saved registration.</p>
+  </header>
+  <section class="card">
+    <form method="get" novalidate>
+      <label for="email">Registration email</label>
+      <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required value="{{ request.args.get('email','') }}" placeholder="you@example.com">
+      <button type="submit">🔎 Find My Team</button>
+    </form>
+    {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+    {% if result %}
+    <section class="result" aria-live="polite">
+      <p>You're registered as <strong>{{ result.full_name }}</strong>.</p>
+      <div class="team">{{ result.team }}</div>
+      <p>Your registration is already saved. You do not need to register again.</p>
+      <div class="tip">💡 Keep this team assignment handy when you arrive at the event.</div>
+    </section>
+    {% endif %}
+    <a class="back" href="{{ url_for('index') }}">← Back to check-in</a>
   </section>
-  {% endif %}
-  <a class="back" href="{{ url_for('index') }}">Back to check-in</a>
 </main></body>
 </html>
