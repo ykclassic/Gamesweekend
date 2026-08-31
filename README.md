@@ -2,72 +2,55 @@
 
 Production Flask application for public event check-in, balanced team assignment, Google Sheets persistence, Gmail SMTP confirmation email, and live team counts.
 
-## How the assignment works
+## Gmail SMTP configuration
 
-The four teams are **Honour**, **Love**, **Breakthrough**, and **Dominion**. On every successful submission the application reads the current Google Sheet rows, counts members in each team, finds the minimum count, and randomly chooses among all teams tied at that minimum. The new row is then appended with an ISO-8601 UTC timestamp.
+Resend has been completely removed. Confirmation emails are sent through Gmail SMTP using Python's standard `smtplib` and `email` libraries.
 
-The check-in write is serialized with an application lock. The recommended Render command uses one Gunicorn worker so concurrent requests cannot race the balancing decision inside the instance.
+Set these environment variables:
 
-## 1. Create the Google Sheet
+- `GMAIL_SMTP_USERNAME` — Gmail/Google Workspace account used to send mail.
+- `GMAIL_SMTP_APP_PASSWORD` — Google App Password for that account. Do not use the normal account password.
+- `GMAIL_FROM_EMAIL` — optional sender address; defaults to `GMAIL_SMTP_USERNAME`.
+- `GMAIL_SMTP_HOST` — optional; defaults to `smtp.gmail.com`.
+- `GMAIL_SMTP_PORT` — optional; defaults to `587`.
 
-1. Create a new Google Sheet.
-2. Give the first worksheet a header row exactly as follows:
+For Gmail, enable 2-Step Verification and create a Google App Password. For Google Workspace, confirm that the organization's policy permits the selected SMTP authentication method.
 
-   `Timestamp | Full Name | Email | Team`
+## Google Sheets setup
 
-3. Create a Google Cloud service account and download its JSON key.
-4. Share the Google Sheet with the service account's `client_email` address as an **Editor**.
-5. Copy the spreadsheet ID from the URL:
+1. Create a Google Sheet.
+2. Set the first worksheet header row to exactly: `Timestamp | Full Name | Email | Team`.
+3. Create a Google Cloud service account and enable the Google Sheets API.
+4. Create a JSON service-account key and keep it secret.
+5. Share the spreadsheet with the service account `client_email` as Editor.
+6. Set `GOOGLE_SHEETS_ID` to the spreadsheet ID.
+7. Set `GOOGLE_SERVICE_ACCOUNT_JSON` to the complete JSON object as one environment-variable value.
 
-   `https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit`
+The application authenticates with `Credentials.from_service_account_info(...)`; no credential file is required in production.
 
-## 2. Create the Google Cloud service account
-
-1. Open Google Cloud Console and create/select a project.
-2. Enable the **Google Sheets API** for the project.
-3. Go to **IAM & Admin → Service Accounts** and create a service account.
-4. Open the service account → **Keys → Add key → Create new key → JSON**.
-5. Store the downloaded JSON securely. Do not commit it to Git.
-6. The full JSON document is supplied to the application through `GOOGLE_SERVICE_ACCOUNT_JSON`.
-
-The application uses `google.oauth2.service_account.Credentials.from_service_account_info(...)`, so a JSON file on disk is not required in production.
-
-## 3. Set up Gmail SMTP
-
-The application sends confirmation emails directly through Gmail SMTP. Resend is not used.
-
-1. Use a Gmail or Google Workspace account dedicated to the event if possible.
-2. Turn on **2-Step Verification** for that Google account.
-3. Create a **Google App Password** for the mail-sending account. Use the generated 16-character app password as the SMTP password; do not use the normal Google account password.
-4. The default SMTP server is `smtp.gmail.com` on port `587` with STARTTLS.
-
-For a Gmail sender, configure:
-
-- `GMAIL_SMTP_USERNAME` — the Gmail address used to authenticate.
-- `GMAIL_SMTP_APP_PASSWORD` — the Google App Password.
-- `GMAIL_FROM_EMAIL` — optional; defaults to `GMAIL_SMTP_USERNAME`.
-
-For Google Workspace, use the organization's approved SMTP/account policy. If the administrator has disabled SMTP AUTH or App Passwords, this method will not work until an approved Google-supported authentication arrangement is enabled.
-
-## 4. Environment variables
+## Environment variables
 
 Required:
 
-- `GOOGLE_SHEETS_ID`
-- `GOOGLE_SERVICE_ACCOUNT_JSON` — the complete service-account JSON object as one environment-variable value
-- `GMAIL_SMTP_USERNAME`
-- `GMAIL_SMTP_APP_PASSWORD`
+```text
+GOOGLE_SHEETS_ID
+GOOGLE_SERVICE_ACCOUNT_JSON
+GMAIL_SMTP_USERNAME
+GMAIL_SMTP_APP_PASSWORD
+```
 
 Optional:
 
-- `GMAIL_FROM_EMAIL` — sender address; defaults to `GMAIL_SMTP_USERNAME`
-- `GMAIL_SMTP_HOST` — defaults to `smtp.gmail.com`
-- `GMAIL_SMTP_PORT` — defaults to `587`
-- `LOG_LEVEL` — normally `INFO`
+```text
+GMAIL_FROM_EMAIL
+GMAIL_SMTP_HOST=smtp.gmail.com
+GMAIL_SMTP_PORT=587
+LOG_LEVEL=INFO
+```
 
-Do not put credentials or service-account JSON in GitHub, committed `.env` files, templates, or client-side JavaScript.
+Never commit credentials or service-account JSON to GitHub.
 
-## 5. Run locally
+## Run locally
 
 ```bash
 python -m venv .venv
@@ -75,72 +58,47 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 # macOS/Linux
 # source .venv/bin/activate
-
 pip install -r requirements.txt
 python app.py
 ```
 
 Open `http://127.0.0.1:10000/`.
 
-The health endpoint is `GET /health` and returns `{"status":"ok"}` when the Flask process is running.
+## Render deployment
 
-## 6. Deploy on Render
-
-Create a **Web Service** connected to this GitHub repository.
-
-**Build command**
+Build command:
 
 ```text
 pip install -r requirements.txt
 ```
 
-**Start command**
+Start command:
 
 ```text
 gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
 ```
 
-Use one worker because the application lock protects the read/count/append sequence within the process. If you later scale to multiple instances, replace this with a distributed coordination strategy before allowing concurrent check-ins across instances.
+Configure the four required environment variables above plus any optional Gmail variables in Render. Use one Gunicorn worker so the in-process assignment lock serializes the read/count/append operation. Do not scale to multiple instances without replacing that lock with distributed coordination.
 
-Add these Render environment variables:
+## QR code
 
-```text
-GMAIL_SMTP_USERNAME=your-event-account@gmail.com
-GMAIL_SMTP_APP_PASSWORD=your-google-app-password
-GMAIL_FROM_EMAIL=your-event-account@gmail.com
-GOOGLE_SHEETS_ID=your-spreadsheet-id
-GOOGLE_SERVICE_ACCOUNT_JSON=your-complete-service-account-json
-```
-
-Do not add the Google JSON key or Gmail App Password to the repository.
-
-## 7. Generate a QR code for the form
-
-After Render deploys, copy the public service URL, for example:
-
-`https://your-service.onrender.com/`
-
-Generate a QR code pointing to that URL with any trusted QR generator, or locally with Python:
+After deployment, point a QR code at the public form URL ending in `/`. For example:
 
 ```bash
 pip install qrcode[pil]
 python -c "import qrcode; qrcode.make('https://your-service.onrender.com/').save('games-weekend-checkin.png')"
 ```
 
-Print/display `games-weekend-checkin.png` at the event. Test the QR code with a phone before the event starts.
+## Operational verification
 
-## 8. Operational checks
-
-Before opening registration:
-
-1. Visit `/health` and confirm HTTP 200.
-2. Visit `/` and submit a real test participant.
-3. Confirm the row appears in Google Sheets.
-4. Confirm the team is one of the four allowed teams.
-5. Confirm the Gmail confirmation email arrives.
-6. Open `/teams` and verify counts.
-7. Submit enough test registrations to verify that the lowest-count team is selected and that ties are randomized.
-8. Remove test rows before the event if desired.
+1. Check `/health` returns HTTP 200.
+2. Submit a test registration at `/`.
+3. Verify the Google Sheet row.
+4. Verify the assigned team is one of the four teams.
+5. Verify the Gmail confirmation email arrives.
+6. Check `/teams`.
+7. Test multiple registrations to verify lowest-count assignment and randomized ties.
+8. Remove test records before the event if required.
 
 ## Project structure
 
@@ -148,6 +106,7 @@ Before opening registration:
 app.py
 requirements.txt
 README.md
+render.yaml
 templates/
   index.html
   confirmation.html
