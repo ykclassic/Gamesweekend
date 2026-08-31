@@ -1,65 +1,41 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Weekend Games - Check In</title>
-    <!-- Tailwind CSS for clean, modern styling matching your screenshot -->
-    <script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Games Weekend team check-in">
+  <title>Games Weekend — Check In</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #f5f7fb; color: #172033; display: grid; place-items: center; padding: 24px; }
+    main { width: min(100%, 480px); background: #fff; border: 1px solid #e6eaf0; border-radius: 20px; padding: 32px; box-shadow: 0 12px 40px rgba(23,32,51,.07); }
+    h1 { margin: 0 0 8px; font-size: clamp(1.8rem, 7vw, 2.3rem); }
+    .intro { color: #667085; margin: 0 0 28px; line-height: 1.5; }
+    label { display: block; font-weight: 650; margin: 18px 0 8px; }
+    input { width: 100%; border: 1px solid #d7dce5; border-radius: 12px; padding: 14px 15px; font: inherit; }
+    input:focus { outline: 3px solid #dbe8ff; border-color: #4f7cff; }
+    button { width: 100%; margin-top: 24px; border: 0; border-radius: 12px; padding: 15px; background: #315efb; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+    button:hover { background: #244bd1; }
+    .link { display: block; text-align: center; margin-top: 20px; color: #315efb; text-decoration: none; font-weight: 650; }
+    .note { margin-top: 22px; color: #667085; font-size: .86rem; text-align: center; }
+  </style>
 </head>
-<body class="bg-gray-50 flex items-center justify-center min-h-screen px-4">
+<body>
+  <main>
+    <h1>Games Weekend</h1>
+    <p class="intro">Check in below and we'll assign you to a team using the current team counts.</p>
+    <form method="post" novalidate>
+      <label for="full_name">Full Name</label>
+      <input id="full_name" name="full_name" type="text" autocomplete="name" maxlength="150" required placeholder="Your full name">
 
-    <div class="max-w-md w-full bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6">
-        
-        <!-- Flask Flash Messages / Error Banner -->
-        {% with messages = get_flashed_messages() %}
-            {% if messages %}
-                <div class="space-y-2">
-                    {% for message in messages %}
-                        <div class="p-4 bg-red-50 border border-red-100 text-red-700 rounded-xl text-sm font-medium text-center">
-                            {{ message }}
-                        </div>
-                    {% endfor %}
-                </div>
-            {% endif %}
-        {% endwith %}
+      <label for="email_address">Email</label>
+      <input id="email_address" name="email_address" type="email" autocomplete="email" maxlength="254" required placeholder="you@example.com">
 
-        <!-- Header Section -->
-        <div class="text-center space-y-2">
-            <h1 class="text-3xl font-bold tracking-tight text-gray-900">Welcome!</h1>
-            <p class="text-gray-500 text-sm">Check in to discover your team for the weekend.</p>
-        </div>
-
-        <!-- Check-In Form -->
-        <form action="/" method="POST" class="space-y-4">
-            <div>
-                <label for="full_name" class="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-                <input type="text" id="full_name" name="full_name" required
-                    class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent text-gray-900 text-sm"
-                    placeholder="Enter your full name">
-            </div>
-
-            <div>
-                <label for="email_address" class="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
-                <input type="email" id="email_address" name="email_address" required
-                    class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent text-gray-900 text-sm"
-                    placeholder="Enter your email address">
-            </div>
-
-            <button type="submit"
-                class="w-full py-3.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl transition duration-200 shadow-sm text-sm">
-                Check In & Find My Team
-            </button>
-        </form>
-
-        <!-- Footer Link -->
-        <div class="text-center pt-2">
-            <a href="/teams" class="text-sm font-medium text-blue-600 hover:text-blue-800 transition duration-150">
-                View Live Team Counts
-            </a>
-        </div>
-
-    </div>
-
+      <button type="submit">Check In &amp; Find My Team</button>
+    </form>
+    <a class="link" href="{{ url_for('teams') }}">View live team counts</a>
+    <p class="note">Your name, email, timestamp and team assignment are stored in the event registration sheet.</p>
+  </main>
 </body>
 </html>
