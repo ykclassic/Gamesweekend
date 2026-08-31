@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 TEAMS = ("Honour", "Love", "Breakthrough", "Dominion")
 HEADERS = ("Timestamp", "Full Name", "Email", "Team")
+AUDIT_HEADERS = ("Timestamp", "Action", "Details")
 EVENT_STATUS_CELL = "F1"
 EVENT_STATUS_VALUES = {"OPEN", "CLOSED"}
 ASSIGNMENT_LOCK = threading.Lock()
@@ -42,9 +43,8 @@ def _required_env(name: str) -> str:
     return value
 
 
-def get_google_sheet():
+def get_google_client():
     raw_json = _required_env("GOOGLE_SERVICE_ACCOUNT_JSON")
-    sheet_id = _required_env("GOOGLE_SHEETS_ID")
     try:
         info = json.loads(raw_json)
     except json.JSONDecodeError as exc:
@@ -54,7 +54,12 @@ def get_google_sheet():
     credentials = Credentials.from_service_account_info(
         info, scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
-    worksheet = gspread.authorize(credentials).open_by_key(sheet_id).sheet1
+    return gspread.authorize(credentials)
+
+
+def get_google_sheet():
+    sheet_id = _required_env("GOOGLE_SHEETS_ID")
+    worksheet = get_google_client().open_by_key(sheet_id).sheet1
     headers = worksheet.row_values(1)
     if not headers:
         worksheet.update("A1:D1", [list(HEADERS)])
@@ -66,8 +71,32 @@ def get_google_sheet():
     return worksheet
 
 
+def get_audit_sheet(spreadsheet):
+    """Create/find a dedicated Audit Log worksheet without mixing audit data into A:D."""
+    try:
+        worksheet = spreadsheet.worksheet("Audit Log")
+    except gspread.WorksheetNotFound:
+        worksheet = spreadsheet.add_worksheet(title="Audit Log", rows=1000, cols=3)
+    headers = worksheet.row_values(1)
+    if not headers:
+        worksheet.update("A1:C1", [list(AUDIT_HEADERS)])
+    elif tuple(headers[:3]) != AUDIT_HEADERS:
+        raise RuntimeError("The Audit Log worksheet has an unexpected header row.")
+    return worksheet
+
+
+def write_audit(action: str, details: str) -> None:
+    """Best-effort audit logging; never make a successful admin operation fail solely because logging failed."""
+    try:
+        spreadsheet = get_google_client().open_by_key(_required_env("GOOGLE_SHEETS_ID"))
+        audit = get_audit_sheet(spreadsheet)
+        timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        audit.append_row([timestamp, action, details], value_input_option="USER_ENTERED")
+    except Exception:
+        logger.exception("Audit log write failed: %s", action)
+
+
 def get_event_status(worksheet) -> str:
-    """Read the event state from F1 without affecting participant columns A:D."""
     value = str(worksheet.acell(EVENT_STATUS_CELL).value or "").strip().upper()
     if value not in EVENT_STATUS_VALUES:
         worksheet.update(EVENT_STATUS_CELL, "OPEN")
@@ -82,22 +111,19 @@ def set_event_status(worksheet, status: str) -> None:
 
 
 def get_participants(worksheet):
-    """Return participant records with their actual Google Sheet row numbers."""
     values = worksheet.get_all_values()
     participants = []
     for row_number, row in enumerate(values[1:], start=2):
         padded = (row + [""] * 4)[:4]
         if not any(cell.strip() for cell in padded):
             continue
-        participants.append(
-            {
-                "row_number": row_number,
-                "timestamp": padded[0].strip(),
-                "full_name": padded[1].strip(),
-                "email": padded[2].strip(),
-                "team": padded[3].strip(),
-            }
-        )
+        participants.append({
+            "row_number": row_number,
+            "timestamp": padded[0].strip(),
+            "full_name": padded[1].strip(),
+            "email": padded[2].strip(),
+            "team": padded[3].strip(),
+        })
     return participants
 
 
@@ -120,7 +146,6 @@ def valid_email(value: str) -> bool:
 
 
 def send_confirmation_email(full_name: str, email_address: str, team: str) -> None:
-    """Send a confirmation using Gmail SMTP and a Google App Password."""
     host = os.environ.get("GMAIL_SMTP_HOST", "smtp.gmail.com").strip()
     try:
         port = int(os.environ.get("GMAIL_SMTP_PORT", "587"))
@@ -129,14 +154,12 @@ def send_confirmation_email(full_name: str, email_address: str, team: str) -> No
     username = _required_env("GMAIL_SMTP_USERNAME")
     password = _required_env("GMAIL_SMTP_APP_PASSWORD").replace(" ", "")
     from_address = os.environ.get("GMAIL_FROM_EMAIL", username).strip()
-
     message = EmailMessage()
     message["From"] = from_address
     message["To"] = email_address
     message["Subject"] = "Your Games Weekend Team"
     message.set_content(
-        f"You're checked in, {full_name}!\n\n"
-        f"Your Games Weekend team is: {team}\n\nWe look forward to seeing you."
+        f"You're checked in, {full_name}!\n\nYour Games Weekend team is: {team}\n\nWe look forward to seeing you."
     )
     message.add_alternative(
         f'<div style="font-family:Arial,sans-serif;line-height:1.6;max-width:560px;margin:auto">'
@@ -177,8 +200,27 @@ def validate_admin_csrf():
     return bool(token and expected and secrets.compare_digest(token, expected))
 
 
+def admin_action_ok():
+    return validate_admin_csrf() and session.get("is_admin") is True
+
+
 def render_error(message: str, status_code: int = 500):
     return render_template("error.html", message=message), status_code
+
+
+def participant_from_row(worksheet, row_number: int):
+    if row_number < 2:
+        return None
+    row = worksheet.row_values(row_number)
+    if len(row) < 4:
+        return None
+    return {
+        "row_number": row_number,
+        "timestamp": row[0].strip(),
+        "full_name": row[1].strip(),
+        "email": row[2].strip(),
+        "team": row[3].strip(),
+    }
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -200,18 +242,10 @@ def index():
                 return render_template("event_closed.html"), 403
             participants = get_participants(worksheet)
             if any(p["email"].lower() == email_address for p in participants):
-                return render_error(
-                    "This email address has already been checked in. Please contact the organizers if you need help.",
-                    409,
-                )
-            counts = get_team_counts(worksheet)
-            team = choose_team(counts)
+                return render_error("This email address has already been checked in. Please contact the organizers if you need help.", 409)
+            team = choose_team(get_team_counts(worksheet))
             timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-            worksheet.append_row(
-                [timestamp, full_name, email_address, team],
-                value_input_option="USER_ENTERED",
-                insert_data_option="INSERT_ROWS",
-            )
+            worksheet.append_row([timestamp, full_name, email_address, team], value_input_option="USER_ENTERED", insert_data_option="INSERT_ROWS")
         try:
             send_confirmation_email(full_name, email_address, team)
         except Exception:
@@ -240,6 +274,7 @@ def admin_login():
         next_url = request.form.get("next", "")
         if not next_url.startswith("/") or next_url.startswith("//"):
             next_url = url_for("admin_dashboard")
+        write_audit("ADMIN_LOGIN", "Administrator signed in")
         return redirect(next_url)
     except Exception:
         logger.exception("Admin login configuration failure")
@@ -249,8 +284,9 @@ def admin_login():
 @app.post("/admin/logout")
 @admin_required
 def admin_logout():
-    if not validate_admin_csrf():
+    if not admin_action_ok():
         return render_error("Invalid admin security token. Please sign in again.", 403)
+    write_audit("ADMIN_LOGOUT", "Administrator signed out")
     session.clear()
     return redirect(url_for("index"))
 
@@ -269,27 +305,17 @@ def admin_dashboard():
         participants = get_participants(worksheet)
         counts = get_team_counts(worksheet)
         query = " ".join(request.args.get("q", "").split()).lower()
-        filtered = participants
-        if query:
-            filtered = [
-                p for p in participants
-                if query in p["full_name"].lower() or query in p["email"].lower() or query in p["team"].lower()
-            ]
+        filtered = [p for p in participants if not query or query in p["full_name"].lower() or query in p["email"].lower() or query in p["team"].lower()]
         today = datetime.now(timezone.utc).date().isoformat()
         today_count = sum(1 for p in participants if p["timestamp"].startswith(today))
         recent = list(reversed(participants[-10:]))
         return render_template(
-            "teams.html",
-            teams=counts,
-            total=len(participants),
-            today_count=today_count,
-            participants=filtered[:100],
-            search_query=request.args.get("q", ""),
-            recent=recent,
-            event_status=get_event_status(worksheet),
-            csrf_token=admin_csrf_token(),
-            reset_complete=request.args.get("reset") == "1",
-            status_changed=request.args.get("status_changed") == "1",
+            "teams.html", teams=counts, total=len(participants), today_count=today_count,
+            participants=filtered[:100], search_query=request.args.get("q", ""), recent=recent,
+            event_status=get_event_status(worksheet), csrf_token=admin_csrf_token(),
+            reset_complete=request.args.get("reset") == "1", status_changed=request.args.get("status_changed") == "1",
+            resent=request.args.get("resent") == "1", updated=request.args.get("updated") == "1",
+            deleted=request.args.get("deleted") == "1", reassigned=request.args.get("reassigned") == "1",
         )
     except Exception:
         logger.exception("Unable to load admin dashboard")
@@ -299,7 +325,7 @@ def admin_dashboard():
 @app.post("/admin/event-status")
 @admin_required
 def admin_event_status():
-    if not validate_admin_csrf():
+    if not admin_action_ok():
         return render_error("Invalid admin security token. Please sign in again.", 403)
     status = request.form.get("status", "").upper()
     if status not in EVENT_STATUS_VALUES:
@@ -307,17 +333,101 @@ def admin_event_status():
     try:
         worksheet = get_google_sheet()
         set_event_status(worksheet, status)
-        logger.warning("Admin changed event registration status to %s", status)
+        write_audit("EVENT_STATUS", f"Registration status changed to {status}")
         return redirect(url_for("admin_dashboard", status_changed="1"))
     except Exception:
         logger.exception("Unable to change event status")
         return render_error("The event status could not be changed.", 503)
 
 
+@app.post("/admin/reassign")
+@admin_required
+def reassign_participant():
+    if not admin_action_ok():
+        return render_error("Invalid admin security token. Please sign in again.", 403)
+    try:
+        row_number = int(request.form.get("row_number", "0"))
+    except ValueError:
+        return render_error("Invalid participant record.", 400)
+    new_team = request.form.get("team", "").strip()
+    if new_team not in TEAMS:
+        return render_error("Invalid team selection.", 400)
+    try:
+        with ASSIGNMENT_LOCK:
+            worksheet = get_google_sheet()
+            participant = participant_from_row(worksheet, row_number)
+            if not participant:
+                return render_error("Participant record was not found.", 404)
+            old_team = participant["team"]
+            if old_team == new_team:
+                return redirect(url_for("admin_dashboard", q=participant["email"], updated="1"))
+            worksheet.update_cell(row_number, 4, new_team)
+        write_audit("TEAM_REASSIGNMENT", f"{participant['email']}: {old_team} -> {new_team}")
+        return redirect(url_for("admin_dashboard", q=participant["email"], reassigned="1"))
+    except Exception:
+        logger.exception("Unable to reassign participant")
+        return render_error("The participant's team could not be changed.", 503)
+
+
+@app.post("/admin/participant/update")
+@admin_required
+def update_participant():
+    if not admin_action_ok():
+        return render_error("Invalid admin security token. Please sign in again.", 403)
+    try:
+        row_number = int(request.form.get("row_number", "0"))
+    except ValueError:
+        return render_error("Invalid participant record.", 400)
+    full_name = " ".join(request.form.get("full_name", "").split())
+    email_address = request.form.get("email", "").strip().lower()
+    if not full_name or len(full_name) > 150 or len(email_address) > 254 or not valid_email(email_address):
+        return render_error("Enter a valid name and email address.", 400)
+    try:
+        with ASSIGNMENT_LOCK:
+            worksheet = get_google_sheet()
+            participant = participant_from_row(worksheet, row_number)
+            if not participant:
+                return render_error("Participant record was not found.", 404)
+            all_participants = get_participants(worksheet)
+            if any(p["row_number"] != row_number and p["email"].lower() == email_address for p in all_participants):
+                return render_error("Another participant already uses that email address.", 409)
+            worksheet.update(f"B{row_number}:C{row_number}", [[full_name, email_address]])
+        write_audit("PARTICIPANT_UPDATED", f"Row {row_number}: {participant['email']} -> {email_address}")
+        return redirect(url_for("admin_dashboard", q=email_address, updated="1"))
+    except Exception:
+        logger.exception("Unable to update participant")
+        return render_error("The participant record could not be updated.", 503)
+
+
+@app.post("/admin/participant/delete")
+@admin_required
+def delete_participant():
+    if not admin_action_ok():
+        return render_error("Invalid admin security token. Please sign in again.", 403)
+    if request.form.get("confirmation", "") != "DELETE":
+        return render_error("Type DELETE exactly to confirm this operation.", 400)
+    try:
+        row_number = int(request.form.get("row_number", "0"))
+    except ValueError:
+        return render_error("Invalid participant record.", 400)
+    try:
+        with ASSIGNMENT_LOCK:
+            worksheet = get_google_sheet()
+            participant = participant_from_row(worksheet, row_number)
+            if not participant:
+                return render_error("Participant record was not found.", 404)
+            worksheet.delete_rows(row_number)
+        write_audit("PARTICIPANT_DELETED", f"Deleted {participant['email']} ({participant['full_name']}) from row {row_number}")
+        return redirect(url_for("admin_dashboard", deleted="1"))
+    except Exception:
+        logger.exception("Unable to delete participant")
+        return render_error("The participant record could not be deleted.", 503)
+
+
 @app.post("/admin/resend-confirmation")
 @admin_required
 def resend_confirmation():
-    if not validate_admin_csrf():
+    if not admin_action_ok():
         return render_error("Invalid admin security token. Please sign in again.", 403)
     try:
         row_number = int(request.form.get("row_number", "0"))
@@ -325,15 +435,14 @@ def resend_confirmation():
         return render_error("Invalid participant record.", 400)
     try:
         worksheet = get_google_sheet()
-        row = worksheet.row_values(row_number)
-        if row_number < 2 or len(row) < 4:
+        participant = participant_from_row(worksheet, row_number)
+        if not participant:
             return render_error("Participant record was not found.", 404)
-        full_name, email_address, team = row[1].strip(), row[2].strip().lower(), row[3].strip()
-        if not full_name or not valid_email(email_address) or team not in TEAMS:
+        if not valid_email(participant["email"]) or participant["team"] not in TEAMS:
             return render_error("Participant record is invalid and cannot receive a confirmation.", 400)
-        send_confirmation_email(full_name, email_address, team)
-        logger.info("Admin resent confirmation email to %s", email_address)
-        return redirect(url_for("admin_dashboard", q=email_address, resent="1"))
+        send_confirmation_email(participant["full_name"], participant["email"], participant["team"])
+        write_audit("CONFIRMATION_RESENT", f"Confirmation resent to {participant['email']}")
+        return redirect(url_for("admin_dashboard", q=participant["email"], resent="1"))
     except Exception:
         logger.exception("Unable to resend confirmation email")
         return render_error("The confirmation email could not be sent. Verify Gmail SMTP configuration and try again.", 503)
@@ -350,21 +459,68 @@ def export_csv():
         writer.writerow(HEADERS)
         for participant in participants:
             writer.writerow([participant["timestamp"], participant["full_name"], participant["email"], participant["team"]])
-        logger.info("Admin exported %d participant records", len(participants))
-        return Response(
-            output.getvalue(),
-            mimetype="text/csv",
-            headers={"Content-Disposition": "attachment; filename=games-weekend-participants.csv"},
-        )
+        write_audit("PARTICIPANT_EXPORT", f"Exported {len(participants)} participant records")
+        return Response(output.getvalue(), mimetype="text/csv", headers={"Content-Disposition": "attachment; filename=games-weekend-participants.csv"})
     except Exception:
         logger.exception("Unable to export participants")
         return render_error("The participant export could not be generated.", 503)
 
 
+@app.get("/admin/history")
+@admin_required
+def admin_history():
+    try:
+        spreadsheet = get_google_client().open_by_key(_required_env("GOOGLE_SHEETS_ID"))
+        audit = get_audit_sheet(spreadsheet)
+        values = audit.get_all_values()
+        entries = []
+        for row in reversed(values[1:]):
+            padded = (row + [""] * 3)[:3]
+            if any(cell.strip() for cell in padded):
+                entries.append({"timestamp": padded[0], "action": padded[1], "details": padded[2]})
+            if len(entries) >= 100:
+                break
+        return render_template("admin_history.html", entries=entries, csrf_token=admin_csrf_token())
+    except Exception:
+        logger.exception("Unable to load admin history")
+        return render_error("Admin activity history is temporarily unavailable.", 503)
+
+
+@app.get("/admin/health")
+@admin_required
+def admin_health():
+    checks = []
+    overall = True
+    try:
+        worksheet = get_google_sheet()
+        status = get_event_status(worksheet)
+        checks.append({"name": "Google Sheets", "ok": True, "detail": f"Connected · registration {status}"})
+    except Exception as exc:
+        logger.exception("Google Sheets health check failed")
+        checks.append({"name": "Google Sheets", "ok": False, "detail": type(exc).__name__})
+        overall = False
+    try:
+        _required_env("GMAIL_SMTP_USERNAME")
+        _required_env("GMAIL_SMTP_APP_PASSWORD")
+        host = os.environ.get("GMAIL_SMTP_HOST", "smtp.gmail.com")
+        port = int(os.environ.get("GMAIL_SMTP_PORT", "587"))
+        with smtplib.SMTP(host, port, timeout=10) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
+            smtp.ehlo()
+        checks.append({"name": "Gmail SMTP", "ok": True, "detail": f"TLS connection available · {host}:{port}"})
+    except Exception as exc:
+        logger.exception("Gmail SMTP health check failed")
+        checks.append({"name": "Gmail SMTP", "ok": False, "detail": type(exc).__name__})
+        overall = False
+    checks.append({"name": "Application", "ok": True, "detail": "Flask process is responding"})
+    return render_template("admin_health.html", checks=checks, overall=overall, csrf_token=admin_csrf_token())
+
+
 @app.post("/admin/reset-teams")
 @admin_required
 def reset_teams():
-    if not validate_admin_csrf():
+    if not admin_action_ok():
         return render_error("Invalid admin security token. Please sign in again.", 403)
     if request.form.get("confirmation", "") != "RESET":
         return render_error("Type RESET exactly to confirm this destructive operation.", 400)
@@ -374,8 +530,9 @@ def reset_teams():
             return render_error("Admin password confirmation failed. Nothing was reset.", 403)
         with ASSIGNMENT_LOCK:
             worksheet = get_google_sheet()
+            participant_count = len(get_participants(worksheet))
             worksheet.batch_clear(["A2:D"])
-        logger.warning("Admin reset all participant registrations to zero")
+        write_audit("FULL_RESET", f"Reset all participant registrations; deleted {participant_count} records")
         return redirect(url_for("admin_dashboard", reset="1"))
     except Exception:
         logger.exception("Unable to reset team counts")
