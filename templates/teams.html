@@ -3,33 +3,29 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="refresh" content="30">
-  <title>Live Team Counts — Admin</title>
+  <title>Admin Dashboard — Games Weekend</title>
   <style>
-    * { box-sizing:border-box; } body { margin:0; min-height:100vh; padding:24px; background:#f5f7fb; color:#172033; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    main { width:min(100%,760px); margin:0 auto; } header { display:flex; justify-content:space-between; align-items:end; gap:16px; margin-bottom:24px; } h1 { margin:0; } .refresh { color:#667085; font-size:.9rem; }
-    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; } .card { background:#fff; border:1px solid #e6eaf0; border-radius:18px; padding:24px; box-shadow:0 8px 28px rgba(23,32,51,.05); } .name { color:#667085; font-weight:650; } .count { margin-top:8px; font-size:2.7rem; font-weight:800; }
-    .total { margin-top:14px; background:#172033; color:#fff; } .total .name { color:#d5d9e2; } .actions { display:flex; gap:16px; align-items:center; margin-top:24px; } a { color:#315efb; font-weight:700; text-decoration:none; } form { margin:0; } button { border:0; border-radius:10px; padding:11px 14px; background:#b42318; color:#fff; font:inherit; font-weight:700; cursor:pointer; } button.secondary { background:transparent; color:#b42318; padding:0; }
-    .danger { margin-top:24px; border:1px solid #fecdca; background:#fff7f6; border-radius:16px; padding:18px; } .danger h2 { margin:0 0 6px; font-size:1rem; } .danger p { margin:0 0 14px; color:#667085; line-height:1.5; }
-    @media (max-width:520px) { body { padding:16px; } header { display:block; } .refresh { margin-top:6px; } .grid { grid-template-columns:1fr; } .actions { flex-wrap:wrap; } }
+    *{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:#172033;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:20px}main{width:min(1100px,100%);margin:auto}.top{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:22px}h1{margin:0}.muted{color:#667085}.actions{display:flex;gap:12px;flex-wrap:wrap}.button,button{border:0;border-radius:10px;padding:11px 15px;font:inherit;font-weight:700;cursor:pointer;text-decoration:none;background:#315efb;color:#fff}.secondary{background:#e9edf5;color:#172033}.danger{background:#b42318}.cards{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:18px}.card{background:#fff;border:1px solid #e6eaf0;border-radius:16px;padding:18px}.label{color:#667085;font-size:.88rem;font-weight:650}.num{font-size:2rem;font-weight:800;margin-top:5px}.status{display:flex;align-items:center;justify-content:space-between;gap:16px;background:#fff;border:1px solid #e6eaf0;border-radius:16px;padding:16px;margin-bottom:18px}.badge{display:inline-block;padding:5px 9px;border-radius:999px;font-size:.78rem;font-weight:800}.open{background:#e8f5e9;color:#176b36}.closed{background:#fef3f2;color:#b42318}.panel{background:#fff;border:1px solid #e6eaf0;border-radius:16px;padding:18px;margin-bottom:18px}form.inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.search{flex:1;min-width:220px;padding:11px 13px;border:1px solid #d7dce5;border-radius:10px;font:inherit}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:12px 8px;border-bottom:1px solid #edf0f4;font-size:.92rem}th{color:#667085;font-size:.8rem;text-transform:uppercase;letter-spacing:.03em}.small{padding:7px 10px;font-size:.82rem}.reset{border:1px solid #f0c7c3;background:#fff7f6;border-radius:12px;padding:16px}.reset input{padding:10px;border:1px solid #d7dce5;border-radius:9px;font:inherit;max-width:180px}.notice{padding:12px 14px;border-radius:10px;background:#e8f5e9;margin-bottom:16px}.danger-note{background:#fff1ef;color:#8b1e17}@media(max-width:800px){.cards{grid-template-columns:repeat(2,1fr)}.top,.status{align-items:flex-start;flex-direction:column}}@media(max-width:520px){body{padding:14px}.cards{grid-template-columns:1fr 1fr}table{display:block;overflow-x:auto;white-space:nowrap}.actions{width:100%}.button{flex:1;text-align:center}}
   </style>
 </head>
 <body><main>
-  <header><div><h1>Live Team Counts</h1><div class="refresh">Admin-only dashboard · updates automatically every 30 seconds</div></div></header>
-  <section class="grid" aria-label="Team membership counts">
-    {% for team, count in teams.items() %}<article class="card"><div class="name">{{ team }}</div><div class="count">{{ count }}</div></article>{% endfor %}
-    <article class="card total"><div class="name">Total Participants</div><div class="count">{{ total }}</div></article>
+  <header class="top"><div><h1>Admin Dashboard</h1><div class="muted">Live operational controls · auto-refreshes every 30 seconds</div></div><div class="actions"><a class="button secondary" href="{{ url_for('export_csv') }}">Export CSV</a><form method="post" action="{{ url_for('admin_logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary" type="submit">Sign out</button></form></div></header>
+  {% if reset_complete %}<div class="notice">All participant records were reset. Team counts are now zero.</div>{% endif %}
+  {% if status_changed %}<div class="notice">Registration status updated.</div>{% endif %}
+  {% if request.args.get('resent') %}<div class="notice">Confirmation email sent again.</div>{% endif %}
+
+  <section class="cards">
+    {% for team, count in teams.items() %}<article class="card"><div class="label">{{ team }}</div><div class="num">{{ count }}</div></article>{% endfor %}
+    <article class="card"><div class="label">Total</div><div class="num">{{ total }}</div></article>
+    <article class="card"><div class="label">Today (UTC)</div><div class="num">{{ today_count }}</div></article>
   </section>
-  <section class="danger">
-    <h2>Reset all team counts</h2>
-    <p>This permanently removes all participant rows from the Google Sheet, leaving only the header row. This action cannot be undone.</p>
-    <form method="post" action="{{ url_for('reset_teams') }}" onsubmit="return confirm('Reset ALL team counts to zero? This will permanently remove all participant records from the Google Sheet. This cannot be undone.');">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button type="submit">Reset All Teams to Zero</button>
-    </form>
-  </section>
-  <div class="actions">
-    <a href="{{ url_for('index') }}">← Back to check-in</a>
-    <form method="post" action="{{ url_for('admin_logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary" type="submit">Sign out</button></form>
-  </div>
+
+  <section class="status"><div><div class="label">Registration status</div><span class="badge {{ 'open' if event_status == 'OPEN' else 'closed' }}">{{ event_status }}</span></div><form class="inline" method="post" action="{{ url_for('admin_event_status') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="status" value="{{ 'CLOSED' if event_status == 'OPEN' else 'OPEN' }}"><button class="{{ 'danger' if event_status == 'OPEN' else '' }}" type="submit">{{ 'Close Registration' if event_status == 'OPEN' else 'Open Registration' }}</button></form></section>
+
+  <section class="panel"><h2>Find participants</h2><form class="inline" method="get" action="{{ url_for('admin_dashboard') }}"><input class="search" name="q" value="{{ search_query }}" placeholder="Search name, email or team"><button type="submit">Search</button>{% if search_query %}<a class="button secondary" href="{{ url_for('admin_dashboard') }}">Clear</a>{% endif %}</form></section>
+
+  <section class="panel"><h2>{{ 'Search results' if search_query else 'Recent registrations' }}</h2>{% set rows = participants if search_query else recent %}{% if rows %}<div style="overflow-x:auto"><table><thead><tr><th>Name</th><th>Email</th><th>Team</th><th>Timestamp</th><th>Action</th></tr></thead><tbody>{% for p in rows %}<tr><td>{{ p.full_name }}</td><td>{{ p.email }}</td><td>{{ p.team }}</td><td>{{ p.timestamp }}</td><td><form method="post" action="{{ url_for('resend_confirmation') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="row_number" value="{{ p.row_number }}"><button class="small secondary" type="submit">Resend email</button></form></td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="muted">No participants found.</p>{% endif %}{% if search_query and participants|length >= 100 %}<p class="muted">Showing the first 100 matching records.</p>{% endif %}</section>
+
+  <section class="reset"><h2>Danger zone</h2><p><strong>Reset all registrations to zero</strong></p><p class="muted">This permanently clears participant data from columns A–D of the Google Sheet. The event registration status is preserved.</p><form method="post" action="{{ url_for('reset_teams') }}" onsubmit="return confirm('This will permanently delete ALL participant records. Continue only if you are certain.');"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input name="confirmation" placeholder="Type RESET" autocomplete="off" required><input name="admin_password" type="password" placeholder="Admin password" autocomplete="current-password" required><button class="danger" type="submit">Permanently Reset</button></form></section>
 </main></body>
 </html>
