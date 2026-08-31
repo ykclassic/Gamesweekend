@@ -8,6 +8,7 @@ import random
 import secrets
 import smtplib
 import threading
+import time
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import parseaddr
@@ -97,15 +98,39 @@ def write_audit(action: str, details: str) -> None:
 def get_event_status(worksheet) -> str:
     value = str(worksheet.acell(EVENT_STATUS_CELL).value or "").strip().upper()
     if value not in EVENT_STATUS_VALUES:
-        worksheet.update(EVENT_STATUS_CELL, "OPEN")
-        return "OPEN"
+        raise RuntimeError(
+            f"Google Sheet event status cell {EVENT_STATUS_CELL} contains an invalid value. "
+            "Expected OPEN or CLOSED."
+        )
     return value
 
 
 def set_event_status(worksheet, status: str) -> None:
     if status not in EVENT_STATUS_VALUES:
         raise ValueError("Invalid event status")
-    worksheet.update(EVENT_STATUS_CELL, status)
+    worksheet.update(EVENT_STATUS_CELL, [[status]])
+
+
+def read_registration_status_with_retry():
+    """Read the authoritative F1 registration status with bounded retry."""
+    last_error = None
+    for attempt in range(3):
+        try:
+            worksheet = get_google_sheet()
+            status = get_event_status(worksheet)
+            logger.info("Authoritative registration status read from Google Sheets: %s", status)
+            return status, False
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                "Google Sheets registration-status read failed (attempt %s/3): %s",
+                attempt + 1,
+                exc,
+            )
+            if attempt < 2:
+                time.sleep(0.5 * (attempt + 1))
+    logger.error("Unable to read authoritative registration status after 3 attempts: %s", last_error)
+    return None, True
 
 
 def get_participants(worksheet):
@@ -155,14 +180,14 @@ def send_confirmation_email(full_name: str, email_address: str, team: str) -> No
     message = EmailMessage()
     message["From"] = from_address
     message["To"] = email_address
-    message["Subject"] = "Your Games Weekend Team"
+    message["Subject"] = "Your YouthAlive Team Allocation"
     message.set_content(
-        f"You're checked in, {full_name}!\n\nYour Games Weekend team is: {team}\n\nWe look forward to seeing you."
+        f"You're checked in, {full_name}!\n\nYour YouthAlive team is: {team}\n\nWe look forward to seeing you."
     )
     message.add_alternative(
         f'<div style="font-family:Arial,sans-serif;line-height:1.6;max-width:560px;margin:auto">'
         f'<h2>You\'re checked in, {html.escape(full_name)}!</h2>'
-        f'<p>Your Games Weekend team is:</p>'
+        f'<p>Your YouthAlive team is:</p>'
         f'<p style="font-size:28px;font-weight:700">{html.escape(team)}</p>'
         f'<p>We look forward to seeing you.</p></div>',
         subtype="html",
@@ -224,7 +249,12 @@ def participant_from_row(worksheet, row_number: int):
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "GET":
-        return render_template("index.html")
+        registration_status, status_error = read_registration_status_with_retry()
+        return render_template(
+            "index.html",
+            registration_status=registration_status,
+            registration_status_error=status_error,
+        )
 
     full_name = " ".join(request.form.get("full_name", "").split())
     email_address = request.form.get("email_address", "").strip().lower()
@@ -248,8 +278,6 @@ def index():
             )
 
             if existing:
-                # Idempotent retry: never create a second registration for the same email.
-                # If the original email failed, a later retry can deliver it successfully.
                 team = existing["team"]
                 full_name = existing["full_name"] or full_name
                 is_existing = True
@@ -269,9 +297,6 @@ def index():
             logger.exception(
                 "Check-in saved but Gmail confirmation failed for %s", email_address
             )
-            # The registration is already durable. Never return a failed-check-in
-            # response after a successful sheet write, because that encourages
-            # retries and duplicate registrations. The admin can resend later.
             return render_template(
                 "email_error.html",
                 full_name=full_name,
@@ -299,6 +324,44 @@ def index():
             "We could not complete your check-in right now. Please try again or contact the organizers.",
             503,
         )
+
+
+@app.get("/lookup", endpoint="participant_lookup")
+def participant_lookup():
+    result = None
+    error = None
+    status, status_error = read_registration_status_with_retry()
+    if status_error:
+        return render_template(
+            "lookup.html",
+            result=None,
+            error="The registration service is temporarily unavailable. Please try again.",
+        )
+
+    email = request.args.get("email", "").strip().lower()
+    if email:
+        if len(email) > 254 or not valid_email(email):
+            error = "Please enter the email address you used when registering."
+        else:
+            try:
+                worksheet = get_google_sheet()
+                participant = next(
+                    (
+                        participant
+                        for participant in get_participants(worksheet)
+                        if participant["email"].lower() == email
+                    ),
+                    None,
+                )
+                if participant:
+                    result = participant
+                else:
+                    error = "We could not find a registration for that email address."
+            except Exception:
+                logger.exception("Participant team lookup failed")
+                error = "We could not look up your team right now. Please try again."
+
+    return render_template("lookup.html", result=result, error=error)
 
 
 @app.route("/admin/login", methods=["GET", "POST"])
