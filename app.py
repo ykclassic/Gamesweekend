@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import random
+import secrets
 import smtplib
 import threading
 from datetime import datetime, timezone
@@ -84,10 +85,6 @@ def send_confirmation_email(full_name: str, email_address: str, team: str) -> No
     username = _required_env("GMAIL_SMTP_USERNAME")
     password = _required_env("GMAIL_SMTP_APP_PASSWORD").replace(" ", "")
     from_address = os.environ.get("GMAIL_FROM_EMAIL", username).strip()
-
-    safe_name = html.escape(full_name)
-    safe_team = html.escape(team)
-    safe_email = html.escape(email_address)
     message = EmailMessage()
     message["From"] = from_address
     message["To"] = email_address
@@ -95,11 +92,8 @@ def send_confirmation_email(full_name: str, email_address: str, team: str) -> No
     message.set_content(f"You're checked in, {full_name}!\n\nYour Games Weekend team is: {team}\n\nWe look forward to seeing you.")
     message.add_alternative(
         f'<div style="font-family:Arial,sans-serif;line-height:1.6;max-width:560px;margin:auto">'
-        f'<h2>You\'re checked in, {safe_name}!</h2><p>Your Games Weekend team is:</p>'
-        f'<p style="font-size:28px;font-weight:700">{safe_team}</p>'
-        f'<p>We look forward to seeing you. This confirmation was sent to {safe_email}.</p></div>',
-        subtype="html",
-    )
+        f'<h2>You\'re checked in, {html.escape(full_name)}!</h2><p>Your Games Weekend team is:</p>'
+        f'<p style="font-size:28px;font-weight:700">{html.escape(team)}</p></div>', subtype="html")
     with smtplib.SMTP(host, port, timeout=30) as smtp:
         smtp.ehlo()
         smtp.starttls()
@@ -109,13 +103,26 @@ def send_confirmation_email(full_name: str, email_address: str, team: str) -> No
 
 
 def admin_required(view):
-    """Require an authenticated admin before exposing team counts."""
     @wraps(view)
     def wrapped(*args, **kwargs):
         if not session.get("is_admin"):
             return redirect(url_for("admin_login", next=request.path))
         return view(*args, **kwargs)
     return wrapped
+
+
+def admin_csrf_token():
+    token = session.get("admin_csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["admin_csrf_token"] = token
+    return token
+
+
+def validate_admin_csrf():
+    token = request.form.get("csrf_token", "")
+    expected = session.get("admin_csrf_token", "")
+    return bool(token and expected and secrets.compare_digest(token, expected))
 
 
 def render_error(message: str, status_code: int = 500):
@@ -164,11 +171,11 @@ def admin_login():
         return render_template("admin_login.html")
     try:
         configured_password = _required_env("ADMIN_PASSWORD")
-        submitted_password = request.form.get("password", "")
-        if submitted_password != configured_password:
+        if request.form.get("password", "") != configured_password:
             return render_template("admin_login.html", error="Invalid admin password."), 401
         session.clear()
         session["is_admin"] = True
+        session["admin_csrf_token"] = secrets.token_urlsafe(32)
         next_url = request.form.get("next", "")
         if not next_url.startswith("/") or next_url.startswith("//"):
             next_url = url_for("teams")
@@ -179,7 +186,10 @@ def admin_login():
 
 
 @app.post("/admin/logout")
+@admin_required
 def admin_logout():
+    if not validate_admin_csrf():
+        return render_error("Invalid admin security token. Please sign in again.", 403)
     session.clear()
     return redirect(url_for("index"))
 
@@ -190,10 +200,26 @@ def teams():
     try:
         worksheet = get_google_sheet()
         counts = get_team_counts(worksheet)
-        return render_template("teams.html", teams=counts, total=sum(counts.values()))
+        return render_template("teams.html", teams=counts, total=sum(counts.values()), csrf_token=admin_csrf_token())
     except Exception:
         logger.exception("Unable to load team counts")
         return render_error("Live team counts are temporarily unavailable. Please refresh shortly.", 503)
+
+
+@app.post("/admin/reset-teams")
+@admin_required
+def reset_teams():
+    if not validate_admin_csrf():
+        return render_error("Invalid admin security token. Please sign in again.", 403)
+    try:
+        with ASSIGNMENT_LOCK:
+            worksheet = get_google_sheet()
+            worksheet.batch_clear(["A2:D"])
+        logger.warning("Admin reset all team registrations to zero")
+        return redirect(url_for("teams", reset="1"))
+    except Exception:
+        logger.exception("Unable to reset team counts")
+        return render_error("The team reset could not be completed. No reset confirmation was issued.", 503)
 
 
 @app.get("/health")
